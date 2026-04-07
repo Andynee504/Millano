@@ -3,29 +3,16 @@
 #include <Adafruit_Sensor.h>
 #include <BleGamepad.h>
 #include <Preferences.h>
-#include <NimBLEDevice.h>
 
 Adafruit_MPU6050 mpu;
 Preferences preferences;
-
-// ===== enderecos BLE API =====
-static const char* CONFIG_DEVICE_NAME = "Mellano Config";
-
-static NimBLEServer* configServer = nullptr;
-static NimBLEService* configService = nullptr;
-static NimBLECharacteristic* configWriteChar = nullptr;
-static NimBLECharacteristic* configNotifyChar = nullptr;
-
-static const char* CONFIG_SERVICE_UUID = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E";
-static const char* CONFIG_WRITE_UUID = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E";
-static const char* CONFIG_NOTIFY_UUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E";
 
 // ===== PINOS =====
 const int SDA_PIN = 22;
 const int SCL_PIN = 21;
 
-const int PEDAL_1_PIN = 18;  // A
-const int PEDAL_2_PIN = 19;  // B
+const int PEDAL_1_PIN = 18; // A
+const int PEDAL_2_PIN = 19; // B
 const int PEDAL_3_PIN = 23;  // segurar no boot = modo config
 
 // ===== CONFIGURACAO =====
@@ -36,8 +23,8 @@ float deadzone = 0.80f;
 float sensX = 18.0f;
 float sensY = 18.0f;
 
-bool invertX = false;   // face pra cima olhando pra frente
-bool invertY = false;  // talvez mude para jogo
+bool invertX = true; // face pra cima olhando pra frente
+bool invertY = false;
 
 // ===== GAMEPAD =====
 BleGamepad bleGamepad("Mellano Proto", "PUCSP", 100);
@@ -398,71 +385,6 @@ void handleConfigSerial() {
 }
 
 // =========================================================
-// BLE HID API
-// =========================================================
-class ConfigServerCallbacks : public NimBLEServerCallbacks {
-  void onConnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo) override {
-    Serial.println("BLE CONFIG: cliente conectado.");
-  }
-
-  void onDisconnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo, int reason) override {
-    Serial.println("BLE CONFIG: cliente desconectado.");
-    NimBLEDevice::startAdvertising();
-  }
-};
-
-class ConfigWriteCallbacks : public NimBLECharacteristicCallbacks {
-  void onWrite(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo) override {
-    std::string value = pCharacteristic->getValue();
-    if (value.empty()) return;
-
-    String cmd = String(value.c_str());
-    cmd.trim();
-
-    Serial.print("BLE CMD: ");
-    Serial.println(cmd);
-
-    applyConfigCommand(cmd);
-
-    if (configNotifyChar != nullptr) {
-      String ack = "OK:" + cmd;
-      configNotifyChar->setValue(ack.c_str());
-      configNotifyChar->notify();
-    }
-  }
-};
-
-void setupConfigBle() {
-  NimBLEDevice::init(CONFIG_DEVICE_NAME);
-
-  configServer = NimBLEDevice::createServer();
-  configServer->setCallbacks(new ConfigServerCallbacks());
-
-  configService = configServer->createService(CONFIG_SERVICE_UUID);
-
-  configWriteChar = configService->createCharacteristic(
-    CONFIG_WRITE_UUID,
-    NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR);
-
-  configNotifyChar = configService->createCharacteristic(
-    CONFIG_NOTIFY_UUID,
-    NIMBLE_PROPERTY::NOTIFY | NIMBLE_PROPERTY::READ);
-
-  configWriteChar->setCallbacks(new ConfigWriteCallbacks());
-  configNotifyChar->setValue("READY");
-
-  configService->start();
-
-  NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();
-  advertising->addServiceUUID(CONFIG_SERVICE_UUID);
-  advertising->setName(CONFIG_DEVICE_NAME);
-  advertising->start();
-
-  Serial.println("BLE CONFIG pronto.");
-  Serial.println("Dispositivo anunciando como 'Mellano Config'.");
-}
-
-// =========================================================
 // Setup / Loop
 // =========================================================
 void setup() {
@@ -509,7 +431,6 @@ void setup() {
   } else {
     Serial.println("MODO: CONFIG");
     printHelp();
-    setupConfigBle();
   }
 }
 
@@ -518,10 +439,12 @@ void loop() {
     readInputs();
     sendGamepadReport();
   } else {
+    handleConfigSerial();
+
     if (millis() - lastPrint >= printInterval) {
       lastPrint = millis();
       readInputs();
-      // printState();
+      printState();
     }
   }
 }

@@ -49,6 +49,7 @@ public class HomeScreen : UIScreen
 
     public void OnPressLinkDevice()
     {
+        Debug.Log("RequestPermissions chamado");
         if (deviceConfigService == null)
             return;
 
