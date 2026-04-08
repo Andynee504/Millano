@@ -107,7 +107,13 @@ public class DeviceConfigService : MonoBehaviour
 
     public void SaveAndReboot()
     {
+        StartCoroutine(SaveAndRebootRoutine());
+    }
+
+    private System.Collections.IEnumerator SaveAndRebootRoutine()
+    {
         SendCommand("SAVE");
+        yield return new WaitForSeconds(1f); // gambiarra - criar fluxo sincrono no .java com callback
         SendCommand("REBOOT");
     }
 
