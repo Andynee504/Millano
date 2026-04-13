@@ -6,21 +6,21 @@ import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothGatt;
 import android.bluetooth.BluetoothGattCallback;
 import android.bluetooth.BluetoothGattCharacteristic;
+import android.bluetooth.BluetoothGattDescriptor;
 import android.bluetooth.BluetoothGattService;
 import android.bluetooth.BluetoothManager;
+import android.bluetooth.BluetoothProfile;
 import android.bluetooth.le.BluetoothLeScanner;
 import android.bluetooth.le.ScanCallback;
 import android.bluetooth.le.ScanResult;
 import android.content.Context;
+import android.os.ParcelUuid;
 
 import com.unity3d.player.UnityPlayer;
 
 import java.nio.charset.StandardCharsets;
-import java.util.UUID;
-
-import android.bluetooth.BluetoothProfile;
-import android.os.ParcelUuid;
 import java.util.List;
+import java.util.UUID;
 
 public class MellanoBlePlugin {
     private static MellanoBlePlugin instance;
@@ -31,11 +31,14 @@ public class MellanoBlePlugin {
     private BluetoothLeScanner scanner;
     private BluetoothGatt gatt;
     private BluetoothGattCharacteristic writeCharacteristic;
+    private BluetoothGattCharacteristic notifyCharacteristic;
 
     private static final String UNITY_RECEIVER = "DeviceConfigService";
 
     private static final UUID SERVICE_UUID = UUID.fromString("6E400001-B5A3-F393-E0A9-E50E24DCCA9E");
     private static final UUID WRITE_UUID = UUID.fromString("6E400002-B5A3-F393-E0A9-E50E24DCCA9E");
+    private static final UUID NOTIFY_UUID = UUID.fromString("6E400003-B5A3-F393-E0A9-E50E24DCCA9E");
+    private static final UUID CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805F9B34FB");
     private static final String TARGET_NAME = "Mellano Config";
 
     public MellanoBlePlugin(Activity activity) {
@@ -95,17 +98,20 @@ public class MellanoBlePlugin {
             gatt.close();
             gatt = null;
             writeCharacteristic = null;
+            notifyCharacteristic = null;
             UnityPlayer.UnitySendMessage(UNITY_RECEIVER, "OnBleConnectionChanged", "DISCONNECTED");
         }
     }
 
     public void connectToAddress(final String address) {
-        if (bluetoothAdapter == null)
+        if (bluetoothAdapter == null) {
             return;
+        }
 
         BluetoothDevice device = bluetoothAdapter.getRemoteDevice(address);
-        if (device == null)
+        if (device == null) {
             return;
+        }
 
         UnityPlayer.UnitySendMessage(UNITY_RECEIVER, "OnBleStatus", "CONNECTING:" + address);
         gatt = device.connectGatt(activity, false, gattCallback);
@@ -121,15 +127,30 @@ public class MellanoBlePlugin {
         writeCharacteristic.setValue(payload);
         boolean ok = gatt.writeCharacteristic(writeCharacteristic);
 
-        UnityPlayer.UnitySendMessage(UNITY_RECEIVER, "OnBleStatus",
-                ok ? "WRITE_OK:" + command : "WRITE_FAILED:" + command);
+        UnityPlayer.UnitySendMessage(
+            UNITY_RECEIVER,
+            "OnBleStatus",
+            ok ? "WRITE_OK:" + command : "WRITE_FAILED:" + command
+        );
+    }
+
+    private void sendNotifyToUnity(byte[] value) {
+        if (value == null || value.length == 0) {
+            return;
+        }
+
+        String payload = new String(value, StandardCharsets.UTF_8).trim();
+        if (!payload.isEmpty()) {
+            UnityPlayer.UnitySendMessage(UNITY_RECEIVER, "OnBleNotify", payload);
+        }
     }
 
     private final ScanCallback scanCallback = new ScanCallback() {
         @Override
         public void onScanResult(int callbackType, ScanResult result) {
-            if (result == null || result.getDevice() == null)
+            if (result == null || result.getDevice() == null) {
                 return;
+            }
 
             BluetoothDevice device = result.getDevice();
             String address = device.getAddress();
@@ -195,6 +216,7 @@ public class MellanoBlePlugin {
         public void onConnectionStateChange(BluetoothGatt g, int status, int newState) {
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 writeCharacteristic = null;
+                notifyCharacteristic = null;
 
                 UnityPlayer.UnitySendMessage(
                     UNITY_RECEIVER,
@@ -221,6 +243,7 @@ public class MellanoBlePlugin {
                 g.discoverServices();
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 writeCharacteristic = null;
+                notifyCharacteristic = null;
 
                 try {
                     g.close();
@@ -258,8 +281,55 @@ public class MellanoBlePlugin {
                 return;
             }
 
-            UnityPlayer.UnitySendMessage(UNITY_RECEIVER, "OnBleStatus", "READY");
-            UnityPlayer.UnitySendMessage(UNITY_RECEIVER, "OnBleConnectionChanged", "CONNECTED");
+            notifyCharacteristic = service.getCharacteristic(NOTIFY_UUID);
+            if (notifyCharacteristic == null) {
+                UnityPlayer.UnitySendMessage(UNITY_RECEIVER, "OnBleStatus", "NOTIFY_CHAR_NOT_FOUND");
+                return;
+            }
+
+            boolean notificationEnabled = g.setCharacteristicNotification(notifyCharacteristic, true);
+            if (!notificationEnabled) {
+                UnityPlayer.UnitySendMessage(UNITY_RECEIVER, "OnBleStatus", "NOTIFY_ENABLE_FAILED");
+                return;
+            }
+
+            BluetoothGattDescriptor cccd = notifyCharacteristic.getDescriptor(CCCD_UUID);
+            if (cccd == null) {
+                UnityPlayer.UnitySendMessage(UNITY_RECEIVER, "OnBleStatus", "CCCD_NOT_FOUND");
+                return;
+            }
+
+            cccd.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
+            boolean descriptorWriteStarted = g.writeDescriptor(cccd);
+            if (!descriptorWriteStarted) {
+                UnityPlayer.UnitySendMessage(UNITY_RECEIVER, "OnBleStatus", "CCCD_WRITE_START_FAILED");
+            }
+        }
+
+        @Override
+        public void onDescriptorWrite(BluetoothGatt g, BluetoothGattDescriptor descriptor, int status) {
+            if (descriptor != null && CCCD_UUID.equals(descriptor.getUuid())) {
+                if (status == BluetoothGatt.GATT_SUCCESS) {
+                    UnityPlayer.UnitySendMessage(UNITY_RECEIVER, "OnBleStatus", "READY");
+                    UnityPlayer.UnitySendMessage(UNITY_RECEIVER, "OnBleConnectionChanged", "CONNECTED");
+                } else {
+                    UnityPlayer.UnitySendMessage(UNITY_RECEIVER, "OnBleStatus", "CCCD_WRITE_FAILED:" + status);
+                }
+            }
+        }
+
+        @Override
+        public void onCharacteristicChanged(BluetoothGatt g, BluetoothGattCharacteristic characteristic) {
+            if (characteristic != null && NOTIFY_UUID.equals(characteristic.getUuid())) {
+                sendNotifyToUnity(characteristic.getValue());
+            }
+        }
+
+        @Override
+        public void onCharacteristicChanged(BluetoothGatt g, BluetoothGattCharacteristic characteristic, byte[] value) {
+            if (characteristic != null && NOTIFY_UUID.equals(characteristic.getUuid())) {
+                sendNotifyToUnity(value);
+            }
         }
     };
 }

@@ -29,32 +29,47 @@ public class PaletteToolsEditor : EditorWindow
 
     private void ApplyPaletteToScene()
     {
-        PaletteColorBinder[] binders = FindObjectsByType<PaletteColorBinder>(FindObjectsSortMode.None);
+        PaletteColorBinder[] binders = FindObjectsByType<PaletteColorBinder>(
+            FindObjectsInactive.Include,
+            FindObjectsSortMode.None
+        );
 
         int count = 0;
 
         foreach (var binder in binders)
         {
-            if (binder.palette == palette)
-            {
-                Undo.RecordObject(binder, "Apply Palette");
+            Undo.RecordObject(binder, "Apply Palette");
+            binder.palette = palette;
 
-                if (binder.spriteRendererTarget != null)
-                    Undo.RecordObject(binder.spriteRendererTarget, "Apply Palette");
+            if (binder.spriteRendererTarget != null)
+                Undo.RecordObject(binder.spriteRendererTarget, "Apply Palette");
 
-                if (binder.imageTarget != null)
-                    Undo.RecordObject(binder.imageTarget, "Apply Palette");
+            if (binder.imageTarget != null)
+                Undo.RecordObject(binder.imageTarget, "Apply Palette");
 
-                if (binder.tmpTextTarget != null)
-                    Undo.RecordObject(binder.tmpTextTarget, "Apply Palette");
+            if (binder.tmpTextTarget != null)
+                Undo.RecordObject(binder.tmpTextTarget, "Apply Palette");
 
-                if (binder.rendererTarget != null && binder.rendererTarget.sharedMaterial != null)
-                    Undo.RecordObject(binder.rendererTarget.sharedMaterial, "Apply Palette");
+            if (binder.rendererTarget != null && binder.rendererTarget.sharedMaterial != null)
+                Undo.RecordObject(binder.rendererTarget.sharedMaterial, "Apply Palette");
 
-                binder.ApplyColor();
-                EditorUtility.SetDirty(binder);
-                count++;
-            }
+            binder.ApplyColor();
+
+            EditorUtility.SetDirty(binder);
+
+            if (binder.spriteRendererTarget != null)
+                EditorUtility.SetDirty(binder.spriteRendererTarget);
+
+            if (binder.imageTarget != null)
+                EditorUtility.SetDirty(binder.imageTarget);
+
+            if (binder.tmpTextTarget != null)
+                EditorUtility.SetDirty(binder.tmpTextTarget);
+
+            if (binder.rendererTarget != null && binder.rendererTarget.sharedMaterial != null)
+                EditorUtility.SetDirty(binder.rendererTarget.sharedMaterial);
+
+            count++;
         }
 
         Debug.Log($"Palette applied to {count} objects.");

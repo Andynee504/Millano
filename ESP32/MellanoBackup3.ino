@@ -10,7 +10,6 @@ Preferences preferences;
 
 // ===== enderecos BLE API =====
 static const char* CONFIG_DEVICE_NAME = "Mellano Config";
-static const char* FIRMWARE_VERSION = "1.1.0";
 
 static NimBLEServer* configServer = nullptr;
 static NimBLEService* configService = nullptr;
@@ -38,7 +37,7 @@ float sensX = 18.0f;
 float sensY = 18.0f;
 
 bool invertX = false;   // face pra cima olhando pra frente
-bool invertY = false;   // talvez mude para jogo
+bool invertY = false;  // talvez mude para jogo
 
 // ===== GAMEPAD =====
 BleGamepad bleGamepad("Mellano Proto", "PUCSP", 100);
@@ -55,16 +54,9 @@ bool btnA = false;
 bool btnB = false;
 bool btnX = false;
 
-float telemetryAccelX = 0.0f;
-float telemetryAccelY = 0.0f;
-
 // ===== CONTROLE =====
 unsigned long lastPrint = 0;
 const unsigned long printInterval = 150;
-
-bool inputStreamEnabled = false;
-unsigned long lastInputNotify = 0;
-const unsigned long inputNotifyInterval = 60;
 
 // ===== MODO DE OPERACAO =====
 enum DeviceMode {
@@ -102,53 +94,6 @@ int mapAxisToHID(float value, float sensitivity, bool invertAxis) {
 
   long hidValue = map(signedValue, -127, 127, HID_MIN, HID_MAX);
   return clampInt((int)hidValue, HID_MIN, HID_MAX);
-}
-
-String formatFloat3(float value) {
-  char buffer[24];
-  snprintf(buffer, sizeof(buffer), "%.3f", value);
-  return String(buffer);
-}
-
-void notifyConfigMessage(const String& payload) {
-  if (configNotifyChar == nullptr) return;
-  configNotifyChar->setValue(payload.c_str());
-  configNotifyChar->notify();
-}
-
-void sendInfoPayload() {
-  String payload = "INFO:" + String(CONFIG_DEVICE_NAME) + "|" + String(FIRMWARE_VERSION);
-  notifyConfigMessage(payload);
-}
-
-void sendInputPayload() {
-  String payload = "INPUT:";
-  payload += formatFloat3(telemetryAccelX);
-  payload += "|";
-  payload += formatFloat3(telemetryAccelY);
-  payload += "|";
-  payload += (btnA ? "1" : "0");
-  payload += "|";
-  payload += (btnB ? "1" : "0");
-  payload += "|";
-  payload += (btnX ? "1" : "0");
-  notifyConfigMessage(payload);
-}
-
-void resetConfigToDefaults(bool clearStoredData) {
-  if (clearStoredData) {
-    preferences.begin("mellano", false);
-    preferences.clear();
-    preferences.end();
-  }
-
-  deadzone = 0.80f;
-  sensX = 18.0f;
-  sensY = 18.0f;
-  invertX = false;
-  invertY = false;
-
-  calibrateCenter();
 }
 
 // =========================================================
@@ -228,9 +173,6 @@ void readInputs() {
 
   float relativeX = a.acceleration.x - centerX;
   float relativeY = a.acceleration.y - centerY;
-
-  telemetryAccelX = relativeX;
-  telemetryAccelY = relativeY;
 
   axisX = mapAxisToHID(relativeX, sensX, invertX);
   axisY = mapAxisToHID(relativeY, sensY, invertY);
@@ -344,7 +286,6 @@ void printHelp() {
   Serial.println("=== COMANDOS ===");
   Serial.println("HELP");
   Serial.println("PRINT");
-  Serial.println("INFO");
   Serial.println("CAL");
   Serial.println("SX=18.0");
   Serial.println("SY=18.0");
@@ -353,8 +294,6 @@ void printHelp() {
   Serial.println("IY=0 ou 1");
   Serial.println("SAVE");
   Serial.println("LOAD");
-  Serial.println("STREAM=1 ou 0");
-  Serial.println("FACTORY_RESET");
   Serial.println("REBOOT");
   Serial.println("GAME");
   Serial.println("================");
@@ -374,11 +313,6 @@ void applyConfigCommand(String rawCmd) {
 
   if (upperCmd == "PRINT") {
     printConfig();
-    return;
-  }
-
-  if (upperCmd == "INFO") {
-    sendInfoPayload();
     return;
   }
 
@@ -402,23 +336,10 @@ void applyConfigCommand(String rawCmd) {
     return;
   }
 
-  if (upperCmd == "FACTORY_RESET") {
-    resetConfigToDefaults(true);
-    Serial.println("FACTORY RESET concluido.");
-    return;
-  }
-
   if (upperCmd == "REBOOT" || upperCmd == "GAME") {
     Serial.println("Reiniciando...");
     delay(150);
     ESP.restart();
-    return;
-  }
-
-  if (upperCmd.startsWith("STREAM=")) {
-    inputStreamEnabled = (rawCmd.substring(7).toInt() != 0);
-    Serial.print("inputStreamEnabled = ");
-    Serial.println(inputStreamEnabled ? 1 : 0);
     return;
   }
 
@@ -486,7 +407,6 @@ class ConfigServerCallbacks : public NimBLEServerCallbacks {
 
   void onDisconnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo, int reason) override {
     Serial.println("BLE CONFIG: cliente desconectado.");
-    inputStreamEnabled = false;
     NimBLEDevice::startAdvertising();
   }
 };
@@ -608,16 +528,10 @@ void loop() {
     readInputs();
     sendGamepadReport();
   } else {
-    handleConfigSerial();
-
     if (millis() - lastPrint >= printInterval) {
       lastPrint = millis();
       readInputs();
-
-      if (inputStreamEnabled && millis() - lastInputNotify >= inputNotifyInterval) {
-        lastInputNotify = millis();
-        sendInputPayload();
-      }
+      // printState();
     }
   }
 }
