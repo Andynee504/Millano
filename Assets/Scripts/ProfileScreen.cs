@@ -106,6 +106,9 @@ public class ProfileScreen : UIScreen
 
         bool hasProfile = deviceConfigService != null && deviceConfigService.HasSavedProfile(slot);
         label.text = hasProfile ? $"Perfil {slot} • salvo" : $"Perfil {slot} • vazio";
+        // ― U+2015 Horizontal Bar
+        // → U+2192 Right Arrow
+        // • U+2022 Bullet
     }
 
     private static void AddButtonListener(Button button, UnityEngine.Events.UnityAction action)
